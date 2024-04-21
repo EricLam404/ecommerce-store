@@ -16,7 +16,7 @@ const addSchema = z.object({
     image: imageSchema.refine(file => file.size > 0, "Required")
 })
 
-const addProduct = async (prevState:unknown, formData: FormData) => {
+export const addProduct = async (prevState:unknown, formData: FormData) => {
     const result = addSchema.safeParse( Object.fromEntries(formData.entries()))
     if(!result.success){
         return result.error.formErrors.fieldErrors
@@ -46,7 +46,49 @@ const addProduct = async (prevState:unknown, formData: FormData) => {
     redirect("/admin/products")
 }
 
-export default addProduct
+const editScheme = addSchema.extend({
+    file: fileSchema.optional(),
+    image: imageSchema.optional()
+})
+
+export const updateProduct = async (id:string, prevState:unknown, formData: FormData) => {
+    const result = editScheme.safeParse( Object.fromEntries(formData.entries()))
+    if(!result.success){
+        return result.error.formErrors.fieldErrors
+    }
+
+    const data = result.data
+    const product = await db.product.findUnique({ where: { id }})
+
+    if(product == null) return notFound()
+    
+    let filePath = product.filePath
+    if(data.file != null && data.file.size > 0){
+        await fs.unlink(product.filePath)
+        filePath = `products/${crypto.randomUUID()}-${data.file.name}`
+        await fs.writeFile(filePath, Buffer.from(await data.file.arrayBuffer()))
+    }
+
+    let imagePath = product.imagePath
+    if(data.image != null && data.image.size > 0){
+        await fs.unlink(`public${product.imagePath}`)
+        imagePath = `/products/${crypto.randomUUID()}-${data.image.name}`
+        await fs.writeFile(`public${imagePath}`, Buffer.from(await data.image.arrayBuffer()))
+    }
+
+    await db.product.update({
+        where: { id },
+        data: {
+          name: data.name,
+          description: data.description,
+          priceInCents: data.priceInCents,
+          filePath,
+          imagePath,
+        },
+    })
+
+    redirect("/admin/products")
+}
 
 export async function toggleProductAvailablitiy(id: string, isAvailableForPurchase: boolean) {
     await db.product.update({
