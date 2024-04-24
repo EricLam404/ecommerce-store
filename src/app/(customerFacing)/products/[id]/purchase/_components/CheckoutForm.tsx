@@ -1,15 +1,17 @@
 'use client'
 
+import { userOrderExists } from "@/app/_actions/orders"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { formatCurrency } from "@/lib/formatters"
-import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js"
+import { Elements, LinkAuthenticationElement, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js"
 import { loadStripe } from "@stripe/stripe-js"
 import Image from "next/image"
 import { FormEvent, useState } from "react"
 
 type CheckoutFormProps = {
     product: {
+        id: string
         imagePath: string
         name: string
         priceInCents: number
@@ -43,23 +45,33 @@ export function CheckoutForm({ product, clientSecret}: CheckoutFormProps){
           </div>
         </div>
         <Elements options={{ clientSecret }} stripe={stripePromise}>
-            <Form priceInCents={product.priceInCents}/>
+            <Form priceInCents={product.priceInCents} productId={product.id}/>
         </Elements>
     </div>
     )
 }
 
-function Form({ priceInCents }: { priceInCents:number }){
+function Form({ priceInCents, productId }: { priceInCents:number, productId: string}){
     const stripe = useStripe()
     const elements = useElements()
     const [isLoading, setIsLoading] = useState(false)
     const [errorMessage, setErrorMessage] = useState<string>()
-    function handleSubmit(e: FormEvent){
+    const [email, setEmail] = useState<string>()
+
+    async function handleSubmit(e: FormEvent){
         e.preventDefault()
     
-        if(stripe == null || elements == null) return
+        if(stripe == null || elements == null || email == null) return
 
         setIsLoading(true)
+
+        const orderExists = await userOrderExists(email, productId);
+
+        if(orderExists){
+            setErrorMessage("You have already purchased this product. Try loading it from theMy Orders page")
+            setIsLoading(false);
+            return
+        }
 
         stripe
             .confirmPayment({elements, confirmParams: {
@@ -85,6 +97,9 @@ function Form({ priceInCents }: { priceInCents:number }){
                 </CardHeader>
                 <CardContent>
                     <PaymentElement />
+                    <div className="mt-4">
+                        <LinkAuthenticationElement onChange={e => setEmail(e.value.email)}/>
+                    </div>
                 </CardContent>
                 <CardFooter>
                     <Button className="w-full" size="lg" disabled={stripe == null || elements == null}>{ isLoading ? "Purchasing..." : `Purchase - ${formatCurrency(priceInCents/100)}`}</Button>
